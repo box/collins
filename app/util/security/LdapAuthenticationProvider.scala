@@ -90,7 +90,10 @@ class LdapAuthenticationProvider() extends AuthenticationProvider {
       require(uid > 0, "Unable to find UID for user")
       logger.debug("Found uid=%s for user %s".format(uid, username))
 
-      val groups = getGroups(username, ctx)
+      val ldapUsername = getLdapName(username,ctx)
+
+      //val groups = getGroups(username, ctx)
+      val groups = getGroups(ldapUsername, ctx)
       val user = UserImpl(username, "*", groups.map { _._2 }.toSet, uid, true)
       logger.trace("Succesfully authenticated %s".format(username))
 
@@ -139,6 +142,19 @@ class LdapAuthenticationProvider() extends AuthenticationProvider {
     }
   }
 
+  protected def getLdapName(username: String, ctx: InitialDirContext): String = {
+    val attribs = ctx.getAttributes(getPrincipal(username))
+
+    attribs.get("uid") match {
+      case attrib => attrib.get.asInstanceOf[String]
+    }
+  }
+
+  protected def ldapGroupSearch(username: String): String = {
+    "(memberUid=%s)".format(username)
+  }
+
+
   /**
    * @param username
    * @param ctx
@@ -147,7 +163,8 @@ class LdapAuthenticationProvider() extends AuthenticationProvider {
   protected def getGroups(username: String, ctx: InitialDirContext): Seq[(Int,String)] = {
     val ctrl = new SearchControls
     ctrl.setSearchScope(SearchControls.SUBTREE_SCOPE)
-    val query = groupSearchFilter(username)
+    //val query = groupSearchFilter(username)
+    val query = ldapGroupSearch(username)
 
     val it = for (
       result <- ctx.search("", query, ctrl);
@@ -158,6 +175,6 @@ class LdapAuthenticationProvider() extends AuthenticationProvider {
       gidNumber = attribs.get("gidNumber").get.asInstanceOf[String].toInt
     ) yield(gidNumber, cn)
 
-    it.toSeq
+    it.toList
   }
 }
