@@ -106,7 +106,7 @@ class LdapAuthenticationProvider() extends AuthenticationProvider {
         logger.info("Authentication process failed. Check configuration?", e)
         None
     } finally {
-      if (ctx != null) ctx.close
+      if (ctx != null) ctx.close()
     }
   }
 
@@ -175,6 +175,6 @@ class LdapAuthenticationProvider() extends AuthenticationProvider {
       gidNumber = attribs.get("gidNumber").get.asInstanceOf[String].toInt
     ) yield(gidNumber, cn)
 
-    it.toList
+    it.toSeq
   }
 }
