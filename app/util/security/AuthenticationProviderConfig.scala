@@ -53,6 +53,7 @@ object LdapAuthenticationProviderConfig extends Configurable {
   def schema = getString("schema")(ConfigValue.Required).map(_.toLowerCase).get
   def searchbase = getString("searchbase")(ConfigValue.Required).get
   def usersub = getString("usersub")(ConfigValue.Required).get
+  def ldapGroupQuery = getString("ldapGroupQuery")(ConfigValue.Required).get
   def useSsl = getBoolean("ssl").getOrElse(false)
 
   def isRfc2307 = schema == RFC_2307

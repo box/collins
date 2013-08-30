@@ -8,6 +8,7 @@ import scala.collection.JavaConverters._
 import java.util.{Hashtable => JHashTable}
 import javax.naming._
 import javax.naming.directory._
+import com.avaje.ebeaninternal.server.ldap.LdapPersistenceException
 
 class LdapAuthenticationProvider() extends AuthenticationProvider {
 
@@ -23,6 +24,7 @@ class LdapAuthenticationProvider() extends AuthenticationProvider {
   private def userAttribute = config.userAttribute
   private def groupAttribute = config.groupAttribute
   private def usersub = config.usersub
+  private def ldapGroupQuery = config.ldapGroupQuery
   // TODO This is not used anywhere, remove from here and docs
   private def groupsub = config.groupsub
 
@@ -90,10 +92,7 @@ class LdapAuthenticationProvider() extends AuthenticationProvider {
       require(uid > 0, "Unable to find UID for user")
       logger.debug("Found uid=%s for user %s".format(uid, username))
 
-      val ldapUsername = getLdapName(username,ctx)
-
-      //val groups = getGroups(username, ctx)
-      val groups = getGroups(ldapUsername, ctx)
+      val groups = getGroups(username, ctx)
       val user = UserImpl(username, "*", groups.map { _._2 }.toSet, uid, true)
       logger.trace("Succesfully authenticated %s".format(username))
 
@@ -142,16 +141,17 @@ class LdapAuthenticationProvider() extends AuthenticationProvider {
     }
   }
 
-  protected def getLdapName(username: String, ctx: InitialDirContext): String = {
+  private def getLdapName(username: String, ctx: InitialDirContext): String = {
     val attribs = ctx.getAttributes(getPrincipal(username))
 
     attribs.get("uid") match {
+      case null => throw new LDAPException("Could not find uid for %s".format(username))
       case attrib => attrib.get.asInstanceOf[String]
     }
   }
 
   protected def ldapGroupSearch(username: String): String = {
-    "(memberUid=%s)".format(username)
+    ldapGroupQuery.format(username)
   }
 
 
@@ -163,8 +163,8 @@ class LdapAuthenticationProvider() extends AuthenticationProvider {
   protected def getGroups(username: String, ctx: InitialDirContext): Seq[(Int,String)] = {
     val ctrl = new SearchControls
     ctrl.setSearchScope(SearchControls.SUBTREE_SCOPE)
-    //val query = groupSearchFilter(username)
-    val query = ldapGroupSearch(username)
+    val ldapUsername = getLdapName(username,ctx)
+    val query = ldapGroupSearch(ldapUsername)
 
     val it = for (
       result <- ctx.search("", query, ctrl);
@@ -178,3 +178,5 @@ class LdapAuthenticationProvider() extends AuthenticationProvider {
     it.toSeq
   }
 }
+
+class LDAPException(msg: String) extends RuntimeException(msg)
