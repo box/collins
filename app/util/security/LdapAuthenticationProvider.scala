@@ -8,7 +8,6 @@ import scala.collection.JavaConverters._
 import java.util.{Hashtable => JHashTable}
 import javax.naming._
 import javax.naming.directory._
-import com.avaje.ebeaninternal.server.ldap.LdapPersistenceException
 
 class LdapAuthenticationProvider() extends AuthenticationProvider {
 
