@@ -16,7 +16,6 @@ libraryDependencies ++= Seq(
   "com.jolbox" % "bonecp" % "0.8.0.RELEASE",
   "com.yammer.metrics" %% "metrics-scala" % "2.2.0",
   "com.addthis.metrics" % "reporter-config" % "2.1.0",
-  "com.google.guava" % "guava" % "11.0.2",
   "mysql" % "mysql-connector-java" % "5.1.19",
   "com.h2database" % "h2" % "1.3.158",
   "org.apache.solr" % "solr-solrj" % "3.6.1",
@@ -27,12 +26,11 @@ libraryDependencies ++= Seq(
   "commons-net" % "commons-net" % "3.1",
   "org.apache.commons" % "commons-lang3" % "3.1",
   "org.bouncycastle" % "bcprov-jdk16" % "1.46",
-  "nl.grons" %% "metrics-scala" % "3.0.1",
   "com.twitter" %% "util-core" % "1.12.12",
   "com.twitter" %% "finagle-http" % "1.10.0",
   "org.jsoup" % "jsoup" % "1.6.1",
   "org.squeryl" %% "squeryl" % "0.9.5",
-  "org.yaml" % "snakeyaml" % "1.11"
+  "org.yaml" % "snakeyaml" % "1.11" 
 )
 
 

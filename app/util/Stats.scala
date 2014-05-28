@@ -1,31 +1,15 @@
 package util
 
-import com.codahale.metrics.{JmxReporter, Snapshot}
+import com.yammer.metrics.scala.Instrumented
+import com.yammer.metrics.core.Timer
+import com.yammer.metrics.scala.{Timer => ScalaTimer}
+import com.yammer.metrics.stats.Snapshot
+
 import java.util.Date
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
-import nl.grons.metrics.scala.Timer
 import scala.collection.JavaConverters._
 import scala.collection.immutable.SortedMap
-
-/**
- * Simple container for the global metrics registery
- */
-object GlobalMetrics {
-  val metricRegistry = new com.codahale.metrics.MetricRegistry()
-
-  // See how to connect over JMX at,
-  // ...http://metrics.codahale.com/getting-started/#reporting-via-jmx
-  private val reporter = JmxReporter.forRegistry(metricRegistry).build()
-  reporter.start()
-}
-
-/**
- * https://github.com/erikvanoosten/metrics-scala
- */
-trait Instrumented extends nl.grons.metrics.scala.InstrumentedBuilder {
-  val metricRegistry = GlobalMetrics.metricRegistry
-}
 
 sealed trait AppStats {
   val name: String
@@ -33,7 +17,7 @@ sealed trait AppStats {
 }
 
 case class AppTimerStats(name: String, timer: Timer) extends AppStats {
-  lazy private val snapshot: Snapshot = timer.snapshot
+  lazy private val snapshot: Snapshot = timer.getSnapshot()
   override def toMap: Map[String, String] = SortedMap(
     "Latency.50thPercentile" -> snapshot.getMedian().toString,
     "Latency.75thPercentile" -> snapshot.get75thPercentile().toString,
@@ -41,14 +25,16 @@ case class AppTimerStats(name: String, timer: Timer) extends AppStats {
     "Latency.98thPercentile" -> snapshot.get98thPercentile().toString,
     "Latency.99thPercentile" -> snapshot.get99thPercentile().toString,
     "Latency.999thPercentile" -> snapshot.get999thPercentile().toString,
-    "Latency.Min" -> timer.min.toString,
-    "Latency.Mean" -> timer.mean.toString,
-    "Latency.Max" -> timer.max.toString,
-    "Latency.StdDev" -> timer.stdDev.toString,
-    "RequestCount" -> timer.count.toString,
-    "Rate.OneMinute" -> timer.oneMinuteRate.toString,
-    "Rate.FiveMinute" -> timer.fiveMinuteRate.toString,
-    "Rate.FifteenMinute" -> timer.fifteenMinuteRate.toString
+    "Latency.Min" -> timer.min().toString,
+    "Latency.Mean" -> timer.mean().toString,
+    "Latency.Max" -> timer.max().toString,
+    "Latency.StdDev" -> timer.stdDev().toString,
+    "Latency.Unit" -> timer.durationUnit().toString,
+    "RequestCount" -> timer.count().toString,
+    "Rate.OneMinute" -> timer.oneMinuteRate().toString,
+    "Rate.FiveMinute" -> timer.fiveMinuteRate().toString,
+    "Rate.FifteenMinute" -> timer.fifteenMinuteRate().toString,
+    "Rate.Unit" -> timer.rateUnit().toString
   )
 }
 
@@ -56,7 +42,7 @@ object Stats extends Instrumented {
   private val appTimers = Set("API", "Web")
   private val counters = new ConcurrentHashMap[String,AtomicInteger]()
   private val timers = {
-    val map = new ConcurrentHashMap[String,Timer]()
+    val map = new ConcurrentHashMap[String,ScalaTimer]()
     appTimers.foreach { timerName =>
       map.put(timerName, metrics.timer(timerName))
     }
@@ -66,12 +52,12 @@ object Stats extends Instrumented {
   val StartupTime = new Date()
 
   def get(): List[AppStats] = {
-    val met = metricRegistry.getMetrics.asScala.map { case(metricName, metric) =>
-      metric match {
-        case timer: Timer =>
-          Some(AppTimerStats(metricName, timer))
-        case _ =>
-          None
+    val met = metricsRegistry.allMetrics.asScala.map { case(metricName, metric) =>
+      val name = metricName.getName()
+      if (metric.isInstanceOf[Timer]) {
+        Some(AppTimerStats(name, metric.asInstanceOf[Timer]))
+      } else {
+        None
       }
     }.foldLeft(List[AppStats]()) { case(total, current) =>
       if (current.isDefined) {
