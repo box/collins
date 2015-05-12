@@ -1,15 +1,13 @@
 package models
 
-import test.ApplicationSpecification
 import util.IpAddress
 import util.config.IpmiConfig
-
 import play.api.Configuration
-
 import org.specs2._
 import specification._
+import play.api.test.WithApplication
 
-class IpmiInfoSpec extends ApplicationSpecification {
+class IpmiInfoSpec extends mutable.Specification {
   
   "IpmiInfo Model Specification".title
 
@@ -21,7 +19,7 @@ class IpmiInfoSpec extends ApplicationSpecification {
     try {
       Asset.create(asset)
     } catch {
-      case e =>
+      case e: Throwable =>
         println("Caught creating asset with tag %s".format(tag))
         throw e
     }
@@ -29,7 +27,7 @@ class IpmiInfoSpec extends ApplicationSpecification {
 
   "The IpmiInfo Model" should {
 
-    "Handle validation" in {
+    "Handle validation" in new WithApplication {
       "Disallow negative values" in {
         IpmiInfo(1,"foo","bar",0,1,1).validate() must throwA[IllegalArgumentException]
         IpmiInfo(1,"foo","bar",1,0,1).validate() must throwA[IllegalArgumentException]
@@ -41,7 +39,7 @@ class IpmiInfoSpec extends ApplicationSpecification {
       }
     }
 
-    "Support find methods" in {
+    "Support find methods" in new WithApplication {
       "nextAvailableAddress" in {
         val startAt = Some("172.16.32.20")
         val l = IpmiInfo.getNextAvailableAddress(startAt)(None)._2
@@ -64,13 +62,13 @@ class IpmiInfoSpec extends ApplicationSpecification {
         IpmiInfo.deleteByAsset(a3) mustEqual 1
         IpmiInfo.createForAsset(a3).dottedAddress mustEqual "172.16.32.22"
       }
-      "createForAsset with rollover" in {
+      "createForAsset with reuse in range" in {
         val asset = ipmiAsset("ipmiAssetTag3")
         val ipmiInfo = IpmiInfo.findByAsset(asset).get
         IpmiInfo.update(ipmiInfo.copy(address = IpAddress.toLong("172.16.32.254"))) mustEqual 1
         val a4 = newIpmiAsset("ipmiAssetTag4")
         val ipmi4 = IpmiInfo.createForAsset(a4)
-        ipmi4.dottedAddress mustEqual "172.16.33.1"
+        ipmi4.dottedAddress mustEqual "172.16.32.22"
         ipmi4.dottedGateway mustEqual "172.16.32.1"
       }
       "findByAsset" in {
@@ -78,7 +76,7 @@ class IpmiInfoSpec extends ApplicationSpecification {
       }
     }
 
-    "Use configured username options" in {
+    "Use configured username options" in new WithApplication {
       "when username is set" in {
         val config = Configuration.from(Map(
           "username"       -> "root",

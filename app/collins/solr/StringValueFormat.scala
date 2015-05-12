@@ -101,9 +101,9 @@ object StringValueFormat {
     )
     val (_,_, strim, etrim, format) = states.find{x => x._1 && x._2}.get
     try {
-      SolrStringValue(rawStr.substring(strim, rawStr.length - (etrim)), format)
+      SolrStringValue(rawStr.substring(strim, rawStr.length - (etrim)).trim(), format)
     } catch {
-      case e =>
+      case e: Throwable =>
         logger.error("Error converting %s to SolrString: %s".format(rawStr, e.getMessage), e)
         throw e
     }

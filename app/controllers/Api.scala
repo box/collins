@@ -4,22 +4,19 @@ import actors._
 import models.Asset
 import util._
 import util.concurrent.BackgroundProcessor
-import util.plugins.Callback
 import util.views.Formatter.dateFormat
 
-import play.api._
-import play.api.data._
 import play.api.libs.json._
 import play.api.mvc._
-import java.io.File
 import java.util.Date
+
 
 private[controllers] case class ResponseData(status: Results.Status, data: JsValue, headers: Seq[(String,String)] = Nil, attachment: Option[AnyRef] = None) {
   def asResult(implicit req: Request[AnyContent]): Result =
     ApiResponse.formatResponseData(this)(req)
 }
 
-trait Api extends ApiResponse with AssetApi with AssetManagementApi with AssetWebApi with AssetLogApi with IpmiApi with TagApi with
+trait Api extends ApiResponse with AssetApi with AssetTypeApi with AssetManagementApi with AssetWebApi with AssetLogApi with IpmiApi with TagApi with
 IpAddressApi with AssetStateApi with AdminApi {
   this: SecureController =>
 
@@ -49,7 +46,7 @@ IpAddressApi with AssetStateApi with AdminApi {
           "TestList" -> JsArray(List(JsNumber(1), JsNumber(2)))
         )),
         "TestList" -> JsArray(List(
-          JsObject(Seq("id" -> JsNumber(123), "name" -> JsString("foo123"))),
+          JsObject(Seq("id" -> JsNumber(123), "name" -> JsString("foo123"), "key-with-dash" -> JsString("val-with-dash"))),
           JsObject(Seq("id" -> JsNumber(124), "name" -> JsString("foo124"))),
           JsObject(Seq("id" -> JsNumber(124), "name" -> JsString("foo124")))
         ))
@@ -87,6 +84,7 @@ object Api {
       }
     }
   }
+
 
   def statusResponse(status: Boolean, code: Results.Status = Results.Ok) =
     ResponseData(code, JsObject(Seq("SUCCESS" -> JsBoolean(status))))

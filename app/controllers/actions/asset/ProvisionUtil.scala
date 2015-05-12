@@ -2,9 +2,11 @@ package controllers
 package actions
 package asset
 
+import scala.concurrent.Future
+
 import actors._
 import forms._
-import models.{Asset, AssetLifecycle, Status => AStatus, Truthy}
+import models.{Asset, AssetLifecycle, AssetMetaValue, Status => AStatus, Truthy}
 import util.{ApiTattler, UserTattler}
 import util.concurrent.BackgroundProcessor
 import util.config.Feature
@@ -12,8 +14,8 @@ import util.plugins.SoftLayer
 
 import play.api.data._
 import play.api.data.Forms._
-import play.api.libs.concurrent.{Akka, Promise}
 import play.api.mvc._
+import play.api.libs.concurrent.Execution.Implicits._
 
 import collins.provisioning.{ProvisionerPlugin, ProvisionerProfile, ProvisionerRequest}
 import collins.provisioning.{ProvisionerRoleData => ProvisionerRole}
@@ -32,7 +34,7 @@ trait ProvisionUtil { self: SecureAction =>
 
   val provisionForm = Form(tuple(
         "profile" -> text,
-        "contact" -> text(3),
+        "contact" -> text,
         "suffix" -> optional(text(3)),
         "primary_role" -> optional(text),
         "pool" -> optional(text),
@@ -73,10 +75,11 @@ trait ProvisionUtil { self: SecureAction =>
         validatePrimaryRole(role, primary_role)
           .right.flatMap(vrole => validatePool(vrole, pool))
           .right.flatMap(vrole => validateSecondaryRole(vrole, secondary_role))
+          .right.flatMap(vrole => validateAllowedHardware(vrole, asset))
           .right.map(frole => request.profile.copy(role = frole))
           .right.map(profile => request.copy(profile = profile))
           .right.map { frequest =>
-            ActionDataHolder(asset, frequest, activeBool(activate), attribs(frequest, form))
+            ActionDataHolder(asset, frequest, activeBool(activate), attribs(asset, frequest, form))
           }
     }
   }
@@ -96,23 +99,40 @@ trait ProvisionUtil { self: SecureAction =>
       None
   }
 
-  protected def attribs(request: ProvisionerRequest, form: ProvisionForm): Map[String,String] = {
-    val contact = form._2
+  protected def attribs(asset: Asset, request: ProvisionerRequest, form: ProvisionForm): Map[String,String] = {
+    val build_contact = form._2
     val suffix = form._3
     val role = request.profile.role
-    val attribSequence =
-      Seq(
+    val highPriorityAttrs =
+      Map(
         "NODECLASS" -> request.profile.identifier,
-        "CONTACT" -> contact,
+        "CONTACT" -> role.contact.getOrElse(""),
+        "CONTACT_NOTES" -> role.contact_notes.getOrElse(""),
         "SUFFIX" -> suffix.getOrElse(""),
         "PRIMARY_ROLE" -> role.primary_role.getOrElse(""),
         "POOL" -> role.pool.getOrElse(""),
-        "SECONDARY_ROLE" -> role.secondary_role.getOrElse("")
+        "SECONDARY_ROLE" -> role.secondary_role.getOrElse(""),
+        "BUILD_CONTACT" -> build_contact
       )
-    val mapForDelete = Feature.deleteSomeMetaOnRepurpose.map(_.name).map(s => (s -> "")).toMap
-    mapForDelete ++ Map(attribSequence:_*)
-  }
+    val lowPriorityAttrs = role.attributes
+    val clearProfileAttrs = role.clear_attributes.map(a => (a -> "")).toMap
 
+    // make sure high priority attrs take precedence over low priority
+    // and make sure any explicitly set attrs override any that are to be cleared
+    clearOnRepurposeAttrs(asset) ++ clearProfileAttrs ++ lowPriorityAttrs ++ highPriorityAttrs
+  }
+  
+  private[this] def clearOnRepurposeAttrs(asset: Asset): Map[String, String] = {
+    if (Feature.useWhiteListOnRepurpose) {
+      val keepAttributes = Feature.keepSomeMetaOnRepurpose.map(_.name)
+      val allAttributes = AssetMetaValue.findByAsset(asset).map(_.getName()).toSet
+      val deleteAttributes = allAttributes -- keepAttributes
+      deleteAttributes.map(s => (s -> "")).toMap
+    } else {
+      Feature.deleteSomeMetaOnRepurpose.map(_.name).map(s => (s -> "")).toMap
+    }
+  }
+  
   protected def fieldError(form: Form[ProvisionForm]): Validation = (form match {
     case f if f.error("profile").isDefined => Option("Profile must be specified")
     case f if f.error("contact").isDefined => Option("Contact must be specified")
@@ -137,6 +157,19 @@ trait ProvisionUtil { self: SecureAction =>
       Left(RequestDataHolder.error400("A primary_role is required but none was specified"))
     else
       Right(role)
+  }
+
+  protected def validateAllowedHardware(role: ProvisionerRole, asset: Asset): ValidOption = role.allowed_classes match {
+    case Some(classifiers) => asset.nodeClass match {
+      case Some(nc) => {
+        if (classifiers contains nc.tag)
+          Right(role)
+        else
+          Left(RequestDataHolder.error400("Asset is classified as %s, but the provisioning profile requires assets matching: %s".format(nc.tag, classifiers.mkString(" or "))))
+      }
+      case _ => Left(RequestDataHolder.error400("Asset is unclassified, but the provisioning profile requires classified assets matching: %s".format(classifiers.mkString(" or "))))
+    }
+    case _ => Right(role)
   }
 
   protected def validateSecondaryRole(role: ProvisionerRole, srole: Option[String]): ValidOption = {
@@ -182,7 +215,7 @@ trait Provisions extends ProvisionUtil with AssetAction { self: SecureAction =>
       tattler.note(definedAsset, userOption, message)
   }
 
-  protected def activateAsset(adh: ActionDataHolder): Promise[Result] = {
+  protected def activateAsset(adh: ActionDataHolder): Future[Result] = {
     val ActionDataHolder(asset, pRequest, _, attribs) = adh
     val plugin = SoftLayer.plugin.get
     val slId = plugin.softLayerId(asset).get
@@ -209,18 +242,18 @@ trait Provisions extends ProvisionUtil with AssetAction { self: SecureAction =>
     }
   }
 
-  protected def provisionAsset(adh: ActionDataHolder): Promise[Result] = {
+  protected def provisionAsset(adh: ActionDataHolder): Future[Result] = {
     import play.api.Play.current
 
     val ActionDataHolder(asset, pRequest, _, attribs) = adh
-    BackgroundProcessor.send(ProvisionerTest(pRequest)(request)) { res =>
+    BackgroundProcessor.send(ProvisionerTest(pRequest)) { res =>
       processProvisionAction(res) { result =>
         processProvision(result)
       }
     }.flatMap {
       case Some(err) =>
         onFailure()
-        Akka.future(err)
+        Future(err)
       case None =>
         if (attribs.nonEmpty) {
           AssetLifecycle.updateAssetAttributes(
@@ -228,7 +261,7 @@ trait Provisions extends ProvisionUtil with AssetAction { self: SecureAction =>
           )
           setAsset(Asset.findById(asset.getId))
         }
-        BackgroundProcessor.send(ProvisionerRun(pRequest)(request)) { res =>
+        BackgroundProcessor.send(ProvisionerRun(pRequest)) { res =>
           processProvisionAction(res) { result =>
             processProvision(result).map { err =>
               tattle("Provisioning failed. Exit code %d\n%s".format(result.commandResult.exitCode,

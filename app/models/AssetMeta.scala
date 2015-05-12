@@ -18,7 +18,7 @@ case class AssetMeta(
 {
   override def validate() {
     require(name != null && name.toUpperCase == name && name.size > 0, "Name must be all upper case, length > 0")
-    require(AssetMeta.isValidName(name), "Name must be all upper case, alpha numeric (and hyphens)")
+    require(AssetMeta.isValidName(name), "Name must be all upper case, alpha numeric (and hyphens): %s".format(name))
     require(description != null && description.length > 0, "Need a description")
     require(AssetMeta.ValueType.valIds(value_type), "Invalid value_type, must be one of [%s]".format(AssetMeta.ValueType.valStrings.mkString(",")))
   }
@@ -45,17 +45,17 @@ case class AssetMeta(
     case AssetMeta.ValueType.Integer => try {
       Some(SolrIntValue(Integer.parseInt(value)))
     } catch {
-      case _ => None
+      case _: Throwable => None
     }
     case AssetMeta.ValueType.Boolean => try {
       Some(SolrBooleanValue((new Truthy(value)).isTruthy))
     } catch {
-      case _ => None
+      case _: Throwable => None
     }
     case AssetMeta.ValueType.Double => try {
       Some(SolrDoubleValue(java.lang.Double.parseDouble(value)))
     } catch {
-      case _ => None
+      case _: Throwable => None
     }
     case _ => Some(SolrStringValue(value))
   }
@@ -194,9 +194,10 @@ object AssetMeta extends Schema with AnormAdapter[AssetMeta] {
     val BaseDescription = AssetMeta.findOrCreateFromName("BASE_DESCRIPTION")
     val BaseProduct = AssetMeta.findOrCreateFromName("BASE_PRODUCT")
     val BaseVendor = AssetMeta.findOrCreateFromName("BASE_VENDOR")
+    val BaseSerial = AssetMeta.findOrCreateFromName("BASE_SERIAL")
 
     def getValues(): Seq[AssetMeta] = {
-      Seq(BaseDescription,BaseProduct,BaseVendor)
+      Seq(BaseDescription,BaseProduct,BaseVendor,BaseSerial)
     }
 
 

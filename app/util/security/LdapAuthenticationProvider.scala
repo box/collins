@@ -9,7 +9,7 @@ import java.util.{Hashtable => JHashTable}
 import javax.naming._
 import javax.naming.directory._
 
-class LdapAuthenticationProvider() extends AuthenticationProvider {
+class LdapAuthenticationProvider extends AuthenticationProvider {
 
   val config = LdapAuthenticationProviderConfig
   val authType = "ldap"
@@ -18,6 +18,7 @@ class LdapAuthenticationProvider() extends AuthenticationProvider {
     case true => "ldaps"
     case _ => "ldap"
   }
+
   private def host = config.host
   private def searchbase = config.searchbase
   private def userAttribute = config.userAttribute
@@ -26,7 +27,6 @@ class LdapAuthenticationProvider() extends AuthenticationProvider {
   private def ldapGroupQuery = config.ldapGroupQuery
   // TODO This is not used anywhere, remove from here and docs
   private def groupsub = config.groupsub
-
   private def url = "%s://%s/%s".format(useSsl, host, searchbase)
 
   // Configuration for ldap connection context
@@ -98,7 +98,7 @@ class LdapAuthenticationProvider() extends AuthenticationProvider {
       Some(user)
     } catch {
       case e: AuthenticationException =>
-        logger.info("Failed authentication for user %s with error %s".format(username, e.getMessage))
+        logger.error("Failed to create directory context, authentication failed", e)
         None
       case e: Throwable =>
         logger.info("Authentication process failed. Check configuration?", e)
@@ -108,6 +108,36 @@ class LdapAuthenticationProvider() extends AuthenticationProvider {
     }
   }
 
+  private def findDn(ctx: InitialDirContext, username: String): Option[String] = {
+    val searchControls = new SearchControls
+    searchControls.setSearchScope(SearchControls.SUBTREE_SCOPE)
+    val filter = "%s=%s".format(userAttribute, username)
+    val searchRoot = "%s,%s".format(usersub, searchbase)
+    val res = ctx.search(searchRoot, filter, searchControls)
+
+    if (res.hasMoreElements()) {
+      val sr = res.nextElement()
+
+      if (res.hasMoreElements()) {
+        logger.warn("Multiple search results when authenticating %s".format(username))
+        None
+      } else {
+        Some(sr.getNameInNamespace())
+      }
+    } else {
+      logger.warn("No search results when authentication %s".format(username))
+      None
+    }
+  }
+
+  // creating a initial dir context will fail to indicate an authentication error
+  private def getUserContext(dn: String,  password: String) = {
+    new InitialDirContext(new JHashTable[String, String](
+      Map(
+        Context.SECURITY_PRINCIPAL -> dn,
+        Context.SECURITY_CREDENTIALS -> password) ++ env
+    ))
+  }
 
   /**
    * INFO log environment and distinguished name details

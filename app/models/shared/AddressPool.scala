@@ -16,7 +16,7 @@ case class AddressPool(
     try {
       IpAddress.toLong(startAddress.get)
     } catch {
-      case e => throw new IllegalArgumentException("%s is not a valid IPv4 address".format(
+      case e: Throwable => throw new IllegalArgumentException("%s is not a valid IPv4 address".format(
         startAddress.get
       ))
     }
@@ -24,52 +24,15 @@ case class AddressPool(
   val ipCalc = try {
     IpAddressCalc(network, startAddress)
   } catch {
-    case e => throw new IllegalArgumentException("%s%s is not a valid network%s".format(
+    case e: Throwable => throw new IllegalArgumentException("%s%s is not a valid network%s".format(
       network,
       startAddress.map(s => ":%s".format(s)).getOrElse(""),
       startAddress.map(_ => "/startAddress").getOrElse("")
     ))
   }
 
-  // Represent an IP range as a bit vector, where every address takes up a bit. We calculate the
-  // used addresses as VectorIndex + ipCalc.minAddressAsLong. We calculate the next available
-  // address as the next unused index >= the start address, plus the minAddress
-  private[this] val addressCache = LockingBitSet(ipCalc.addressCount)
-
   def isInRange(address: String): Boolean = ipCalc.subnetInfo.isInRange(address)
   def isInRange(address: Long): Boolean = isInRange(IpAddress.toString(address))
-
-  def clearAddresses() { addressCache.forWrite(_.clear()) }
-  def hasAddressCache(): Boolean = !addressCache.forRead(_.isEmpty)
-  def useAddress(address: String) {
-    useAddress(IpAddress.toLong(address))
-  }
-  def useAddress(address: Long) {
-    requireInRange(address)
-    addressCache.forWrite(_.set(addressIndex(address)))
-  }
-  def unuseAddress(address: String) {
-    unuseAddress(IpAddress.toLong(address))
-  }
-  def unuseAddress(address: Long) {
-    requireInRange(address)
-    addressCache.forWrite(_.set(addressIndex(address), false))
-  }
-  def nextDottedAddress(): String = {
-    IpAddress.toString(nextAddress)
-  }
-  def nextAddress(): Long = {
-    val idx = addressIndex(ipCalc.startAddressAsLong)
-    val next = addressCache.forRead(_.nextClearBit(idx))
-    val nextAddress = next + ipCalc.minAddressAsLong
-    requireInRange(nextAddress)
-    nextAddress
-  }
-  // mostly for testing
-  protected[shared] def usedDottedAddresses(): Set[String] = {
-    (for (i <- addressCache.indexIterator)
-      yield IpAddress.toString(addressFromIndex(i))).toSet
-  }
 
   // Ensure as a set, address pools with the same name are seen as equal
   override def equals(o: Any) = o match {

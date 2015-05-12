@@ -7,21 +7,27 @@ documentation below is for developers or people setting up a new instance.
 
 The most recent production build of collins is available [here](http://tumblr.github.com/collins/downloads.html)
 
-## Quickstart - Screencast
+[![Build Status](https://travis-ci.org/tumblr/collins.png?branch=master)](https://travis-ci.org/tumblr/collins)
 
-http://www.youtube.com/watch?v=rEyoS-iofK8
+## Quickstart
 
-## Quickstart - Building Collins
+[Docker](http://tumblr.github.com/collins/#quickstart-docker)
 
-http://tumblr.github.com/collins/#quickstart
+[Use a Zip](http://tumblr.github.com/collins/#quickstart-zip)
 
-## Collins for Production
+[Build from Source](http://tumblr.github.com/collins/#quickstart-source)
 
-http://tumblr.github.com/collins/#quickstart-prod
+## Docker Image
+
+You can find more about using collins with Docker here:
+
+http://tumblr.github.io/collins/index.html#docker
+
+tl;dr: ```docker run -p 9000:9000 tumblr/collins```
 
 ## License
 
-Copyright 2012 Tumblr, Inc.
+Copyright 2015 Tumblr, Inc.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -39,10 +45,10 @@ Email collins-sm@googlegroups.com or see the mailing list archive at https://gro
 
 ## Internal (Tumblr) docs
 
-To create a production zip, run `./scripts/package.sh`. This will produce
-`target/collins.zip`.
-
-Copy `target/collins.zip` to `repo.d2.tumblr.net:/usr/local/static_file_server/collins.zip`.
-
-Run `cap deploy ROLES=appd2` to deploy to d2, then `cap deploy ROLES=app` to
-deploy to EWR01.
+To create a production zip and deploy to production:
+  - ensure capistrano 2.15.5 is installed
+  - ensure net-ssh < 2.7.0 is installed - versions 2.7.0 and above are broken with our environment
+  - download and unpackage play @ ~/src/play-2.1.5 or define $PLAY_CMD with an alternate location
+  - run `./scripts/package.sh` which will produce `target/collins.zip`
+  - run `cap publish:collins` which will upload and link to release to `http://repo.tumblr.net:8888/collins.zip`
+  - run `cap ewr01 deploy` to deploy to ewr01 and `cap d2 deploy` to deploy to d2

@@ -19,17 +19,18 @@ case class AssetType(name: String, label: String, id: Int = 0) extends Validated
 object AssetType extends Schema with AnormAdapter[AssetType] {
 
   override val tableDef = table[AssetType]("asset_type")
+  val reservedNames = List("SERVER_NODE","SERVER_CHASSIS","RACK","SWITCH","ROUTER","POWER_CIRCUIT","POWER_STRIP","DATA_CENTER","CONFIGURATION")
   on(tableDef)(a => declare(
     a.id is(autoIncremented,primaryKey),
     a.name is(unique)
   ))
 
   implicit object AssetTypeFormat extends Format[AssetType] {
-    override def reads(json: JsValue) = AssetType(
+    override def reads(json: JsValue) = JsSuccess(AssetType(
       (json \ "NAME").as[String],
       (json \ "LABEL").as[String],
       (json \ "ID").asOpt[Int].getOrElse(0)
-    )
+    ))
     override def writes(at: AssetType) = JsObject(Seq(
       "ID" -> Json.toJson(at.id),
       "NAME" -> Json.toJson(at.name),
@@ -73,5 +74,6 @@ object AssetType extends Schema with AnormAdapter[AssetType] {
 
   def ServerNode = findByName("SERVER_NODE")
   def Configuration = findByName("CONFIGURATION")
+  def isSystemType(atype: AssetType) = reservedNames.contains(atype.name.toUpperCase)
 
 }

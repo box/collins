@@ -1,5 +1,4 @@
-#! /usr/bin/env sh
-#
+#!/bin/bash
 # collins - groovy kind of love
 # http://tumblr.github.io/collins/#about
 #
@@ -42,7 +41,17 @@ daemon_args="-u $COLLINS_USER --env HOME=$APP_HOME --name $APP_NAME --pidfile $d
 daemon_start_args="--stdout=${LOG_HOME}/$APP_NAME/stdout --stderr=${LOG_HOME}/$APP_NAME/error"
 
 function running() {
-  $DAEMON $daemon_args --running
+  [[ ! -s $pidfile ]] && return 1
+  ps -fp $(cat $pidfile) &>/dev/null
+}
+
+function ensure_java_binary() {
+  local executable="${1:-$JAVA_HOME/bin/java}"
+  if [[ ! -x $executable ]]; then
+    log_failure_msg "Check $executable exists"
+    echo "*** $executable isn't executable or doesn't exist -- check JAVA_HOME?"
+    exit 1
+  fi
 }
 
 function find_java() {
@@ -59,91 +68,115 @@ function find_java() {
 
 find_java
 
+initialize_db() {
+  declare db_username="$1";
+  declare db_password="$2";
+
+  echo "Initializing collins database on localhost..."
+
+  if [ -z "$db_username" ]; then
+    read -p "Collins Database Username: " db_username
+  fi
+  if [ -z "$db_password" ]; then
+    stty -echo
+    read -p "Collins Database Password: " db_password; echo
+    stty echo
+  fi
+
+  echo "Please enter mysql root password. Press <enter> for none."
+  mysql -u root -p -e 'CREATE DATABASE IF NOT EXISTS collins;'
+
+  echo "Granting privs to collins user on localhost..."
+  echo "Please enter mysql root password. Press <enter> for none."
+  mysql -u root -p -e "GRANT ALL PRIVILEGES ON collins.* to $db_username@'127.0.0.1' IDENTIFIED BY '$db_password';"
+}
+
+evolve_db() {
+    ensure_java_binary
+    echo -n "Running migrations"
+    ${JAVA_HOME}/bin/java ${APP_OPTS} -cp "$APP_HOME/lib/*" DbUtil $APP_HOME/conf/evolutions/
+    [[ $? -eq 0 ]] && log_success_msg || log_failure_msg
+    echo "Database initialization attempted" >> /var/run/$APP_NAME/install.log
+}
+
 case "$1" in
   initdb)
-    echo "mysql root password. Enter for none."
-    mysql -u root -p -e 'create database if not exists collins;'
-    if [ -z "$2" ]; then
-      read -p "Application Database Username: " db_username
-    else
-      db_username=$2;
-    fi
-    if [ -z "$3" ]; then
-      stty -echo
-      read -p "Application Database Password: " db_password; echo
-      stty echo
-    else
-      db_password=$3;
-    fi
-    echo "mysql root password. Enter for none."
-    mysql -u root -p -e "grant all privileges on collins.* to $db_username@'127.0.0.1' identified by '$db_password';"
-    if [ ! -x $JAVA_HOME/bin/java ]; then
-      echo "FAIL"
-      echo "Didn't find $JAVA_HOME/bin/java, check JAVA_HOME?"
-      exit 1
-    fi
-    echo "Running migrations"
-    ${JAVA_HOME}/bin/java ${APP_OPTS} -cp "$APP_HOME/lib/*" DbUtil $APP_HOME/conf/evolutions/
-    echo "Database initialization attempted" > /var/run/$APP_NAME/install.log
+    initialize_db "$2" "$3"
+    evolve_db
+  ;;
+
+  evolvedb)
+    evolve_db
   ;;
 
   start)
-    echo -n "Starting $APP_NAME... "
+    ensure_java_binary
 
     if [ ! -r $APP_HOME/lib/$APP_NAME* ]; then
-      echo "FAIL"
+      log_failure_msg "Finding $APP_HOME/lib/$APP_NAME jar"
       echo "*** $APP_NAME jar missing: $APP_HOME/lib/$APP_NAME - not starting"
       exit 1
     fi
-    if [ ! -x $JAVA_HOME/bin/java ]; then
-      echo "FAIL"
-      echo "*** $JAVA_HOME/bin/java doesn't exist -- check JAVA_HOME?"
-      exit 1
-    fi
+
     if running; then
-      echo "already running."
+      log_warning_msg "Check if collins is not already running"
+      echo "Skipping, $APP_NAME is already running"
       exit 0
     fi
 
-    ulimit -c unlimited || echo -n " (no coredump)"
-    ulimit -n $FILE_LIMIT || echo -n " (could not set file limit)"
-    $DAEMON $daemon_args $daemon_start_args -- sh -c "echo "'$$'" > $pidfile; exec ${JAVA_HOME}/bin/java ${JAVA_OPTS} -cp ${APP_HOME}'/lib/*' play.core.server.NettyServer ${APP_HOME}"
+    # if we are already running as $COLLINS_USER, no need to su
+    # This lets us run collins.sh as the app user, for example inside a docker container
+    java_command="${JAVA_HOME}/bin/java ${JAVA_OPTS} -cp ${APP_HOME}/lib/\* play.core.server.NettyServer ${APP_HOME}"
+    if [[ $(whoami) = $COLLINS_USER ]] ; then
+      start_command="$java_command"
+    else
+      start_command="su -s /bin/bash -c '$java_command' $COLLINS_USER"
+    fi
+
+    ulimit -c unlimited || log_warning_msg "Unable to set core ulimit to unlimited"
+    ulimit -n $FILE_LIMIT || log_warning_msg "Unable to set nofiles ulimit to $FILE_LIMIT"
+    echo -n "Starting $APP_NAME... "
+    nohup bash -c "$start_command" >>${LOG_HOME}/$APP_NAME/stdout 2>>${LOG_HOME}/$APP_NAME/error </dev/null &
+    echo $! >$pidfile
+    # lets chill for a sec before checking its up
+    sleep 3s
     tries=0
-    while ! running; do
-      tries=$((tries + 1))
-      if [ $tries -ge 5 ]; then
-        echo "FAIL"
-        exit 1
-      fi
-      sleep 1
-    done
-    echo "done."
+    if ! running ; then
+      log_failure_msg
+      echo "*** Try checking the logs in ${LOG_HOME}/$APP_NAME/{stdout,error} to see what the haps are"
+      rm -f $pidfile
+      exit 1
+    fi
+    log_success_msg
   ;;
 
   stop)
-    echo -n "Stopping $APP_NAME... "
     if ! running; then
-      echo "wasn't running."
+      log_failure_msg "$APP_NAME is not running"
       exit 0
     fi
 
-    kill $(cat $pidfile)
+    echo -n "Stopping $APP_NAME... "
+    kill $(cat $pidfile) &>/dev/null
     tries=0
     while running; do
       tries=$((tries + 1))
       if [ $tries -ge 15 ]; then
-        echo "FAILED SOFT SHUTDOWN, TRYING HARDER"
+        # kill didnt take after 15s, lets try again
         if [ -f $pidfile ]; then
-          kill $(cat $pidfile)
+          kill $(cat $pidfile) &>/dev/null
         else
-          echo "CAN'T FIND PID, TRY KILL MANUALLY"
+          log_failure_msg
+          echo "Unable to find pid, try killing the process manually"
           exit 1
         fi
         hardtries=0
+        # wait another 5 seconds to see if it stopped after the 2nd kill
         while running; do
           hardtries=$((hardtries + 1))
           if [ $hardtries -ge 5 ]; then
-            echo "FAILED HARD SHUTDOWN, TRY KILL -9 MANUALLY"
+            log_failure_msg
+            echo "Unable to stop $APP_NAME, try 'kill -9 $(cat $pidfile)'"
             exit 1
           fi
           sleep 1
@@ -151,12 +184,12 @@ case "$1" in
       fi
       sleep 1
     done
-    echo "done."
+    log_success_msg
   ;;
 
   status)
     if running; then
-      echo "$APP_NAME is running."
+      echo "$APP_NAME (pid $(cat $pidfile)) is running."
     else
       echo "$APP_NAME is NOT running."
       exit 3
@@ -170,11 +203,10 @@ case "$1" in
   ;;
 
   *)
-    echo "Usage: /etc/init.d/${APP_NAME}.sh {start|stop|restart|status|initdb}"
-    echo "Note: initdb can optionally be passed a username followed by a password to initialize the db"
+    echo "Usage: $0 {start|stop|restart|status|initdb|evolvedb}"
+    echo "Note: 'initdb' can optionally be passed a username followed by a password to initialize the db"
     exit 1
   ;;
 esac
 
 exit 0
-

@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 
 URL="http://localhost:9000/api/asset"
 LshwFiles="10g
@@ -6,6 +6,7 @@ amd-opteron-wonky
 b0214
 b0216
 dell-r620-single-cpu
+lvm
 intel
 new-web-old-lshw
 old-web
@@ -23,7 +24,7 @@ lldp_files=($LldpFiles)
 num_lldp_files=${#lldp_files[*]}
 
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-RESOURCE_DIR="$(realpath "${DIR}/../test/resources/")"
+RESOURCE_DIR="${DIR}/../test/resources/"
 
 for i in `seq 300 310`; do
   TAG="tumblrtag${i}"

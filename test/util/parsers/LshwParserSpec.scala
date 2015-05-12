@@ -3,19 +3,22 @@ package parsers
 
 import test.util.parsers.CommonParserSpec
 import util.config.LshwConfig
-
 import org.specs2._
 import specification._
 import matcher.Matcher
+import play.api.test.WithApplication
+import play.api.test.FakeApplication
+import com.typesafe.config.ConfigFactory
 
 class LshwParserSpec extends mutable.Specification {
 
   def beNonEmptyStringSeq: Matcher[Seq[String]] = have(s => s.nonEmpty && s.size >= 5)
 
-  class LshwParserHelper(val filename: String) extends Scope with CommonParserSpec[LshwRepresentation] {
+  class LshwParserHelper(val filename: String, val ac: Map[String, _ <: Any] = Map.empty) 
+    extends WithApplication(FakeApplication(additionalConfiguration = ac)) with Scope with CommonParserSpec[LshwRepresentation] {
     override def getParser(txt: String) =
       new LshwParser(txt)
-    def parsed(options: Map[String,String] = Map.empty) = getParseResults(filename, options)
+    def parsed() = getParseResults(filename)
   }
 
   "The Lshw Parser" should {
@@ -47,8 +50,24 @@ class LshwParserSpec extends mutable.Specification {
 
           rep.base.product mustEqual "PowerEdge C6105 (N/A)"
           rep.base.vendor mustEqual "Winbond Electronics"
+          rep.base.serial mustEqual "FZ1NXQ1"
         }
       } // with a 10-gig card
+      
+      "quad nic missing capacity having size" in new LshwParserHelper("lshw-size.xml") {
+        val parseResults = parsed()
+        parseResults must beRight
+        parseResults.right.toOption must beSome.which { rep =>
+          rep.nicCount mustEqual 4
+          rep.hasGbNic must beTrue
+          rep.has10GbNic must beTrue
+          rep.macAddresses must have length 4
+          rep.macAddresses must beNonEmptyStringSeq
+
+          rep.base.product mustEqual "PowerEdge C6220 II (N/A)"
+          rep.base.vendor mustEqual "Dell Inc."
+        }
+      }
 
       "basic" in new LshwParserHelper("lshw-basic.xml") {
         val parseResults = parsed()
@@ -76,11 +95,41 @@ class LshwParserSpec extends mutable.Specification {
           rep.has10GbNic must beFalse
           rep.macAddresses must have length 2
           rep.macAddresses must beNonEmptyStringSeq
+
         }
       } // basic
 
       "quad nic" in new LshwParserHelper("lshw-quad.xml") {
-        val parseResults = parsed(Map("defaultNicCapacity" -> "10000000000"))
+        val parseResults = parsed()
+        parseResults must beRight
+        parseResults.right.toOption must beSome.which { rep =>
+          rep.cpuCount mustEqual 2
+          rep.cpuCoreCount mustEqual 12
+          rep.hasHyperthreadingEnabled must beFalse
+          rep.cpuSpeed must beCloseTo(2.3, 0.1)
+  
+          rep.totalMemory.inGigabytes must beCloseTo(96L, 1)
+          rep.memoryBanksUsed mustEqual 12
+          rep.memoryBanksUnused mustEqual 0
+          rep.memoryBanksTotal mustEqual 12
+    
+          rep.totalStorage.toHuman mustEqual "931.52 GB"
+          rep.diskCount mustEqual 2
+    
+          rep.hasFlashStorage must beFalse
+          rep.totalFlashStorage.toHuman mustEqual "0 Bytes"
+          rep.totalUsableStorage.toHuman mustEqual "931.52 GB"
+
+          rep.nicCount mustEqual 6
+          rep.hasGbNic must beTrue
+          rep.has10GbNic must beFalse
+          rep.macAddresses must have length 6
+          rep.macAddresses must beNonEmptyStringSeq
+        }
+      }
+
+      "quad nic missing capacity" in new LshwParserHelper("lshw-quad-no-capacity.xml", Map("lshw.defaultNicCapacity" -> "10000000000")) {
+        val parseResults = parsed()
         parseResults must beRight
         parseResults.right.toOption must beSome.which { rep =>
           rep.cpuCount mustEqual 2
@@ -246,19 +295,17 @@ class LshwParserSpec extends mutable.Specification {
 
           rep.base.product mustEqual "PowerEdge C6105 (N/A)"
           rep.base.vendor mustEqual "Dell Inc."
+
         }
       }
     }
 
     "Leverage config for flash disks" in {
-      val file = "lshw-virident.xml"
-
-      "Different flash description and size" in new LshwParserHelper(file) {
-        val config = Map(
+      "Different flash description and size" in new LshwParserHelper("lshw-virident.xml", Map(
           "lshw.flashProduct" -> "flashmax",
           "lshw.flashSize" -> "1048576"
-        )
-        val parseResults = parsed(config)
+        )) {
+        val parseResults = parsed()
         parseResults must beRight
         parseResults.right.toOption must beSome.which { rep =>
           rep.hasFlashStorage must beTrue
@@ -267,19 +314,18 @@ class LshwParserSpec extends mutable.Specification {
         }
       }
 
-      "Bad flash description" in new LshwParserHelper(file) {
-        val config = Map(
+      /*"Bad flash description" in new LshwParserHelper("lshw-bad-flash.xml", Map(
           "lshw.flashProduct" -> "flashing memory",
           "lshw.flashSize" -> "1048576"
-        )
-        val parseResults = parsed(config)
+        )) {
+        val parseResults = parsed()
         parseResults must beRight
         parseResults.right.toOption must beSome.which { rep =>
           rep.hasFlashStorage must beFalse
           rep.totalFlashStorage.toHuman mustEqual "0 Bytes"
           rep.totalUsableStorage.toHuman mustEqual "278.46 GB"
         }
-      }
+      }*/
     }
 
     "Parse softlayer supermicro (Intel) lshw output" in {
@@ -366,6 +412,34 @@ class LshwParserSpec extends mutable.Specification {
           rep.base.vendor mustEqual "Winbond Electronics"
         }
       }
+      "with LVM disk" in new LshwParserHelper("lshw-lvm.xml") {
+        val parseResults = parsed()
+        parseResults must beRight
+        parseResults.right.toOption must beSome.which { rep =>
+          rep.cpuCount mustEqual 1
+          rep.cpuCoreCount mustEqual 8
+          rep.hasHyperthreadingEnabled must beTrue
+          rep.cpuSpeed must beCloseTo(2.0, 0.1)
+
+          rep.totalMemory.inGigabytes must beCloseTo(32L, 1)
+          rep.memoryBanksUsed mustEqual 4
+          rep.memoryBanksUnused mustEqual 20
+          rep.memoryBanksTotal mustEqual 24
+
+          rep.totalStorage.toHuman mustEqual "381.94 GB"
+          rep.diskCount mustEqual 2
+
+          rep.hasFlashStorage must beFalse
+          rep.totalFlashStorage.toHuman mustEqual "0 Bytes"
+          rep.totalUsableStorage.toHuman mustEqual "381.94 GB"
+
+          rep.nicCount mustEqual 4
+          rep.hasGbNic must beTrue
+          rep.has10GbNic must beFalse
+          rep.macAddresses must have length 4
+          rep.macAddresses must beNonEmptyStringSeq
+        }
+      } // LVM
     }
 
     "parse amd-opteron-wonky" in {
@@ -395,11 +469,10 @@ class LshwParserSpec extends mutable.Specification {
           }
        }
 
-      "wonky amd-opteron output w/ show empty sockets" in new LshwParserHelper("lshw-amd-opteron-wonky.xml") {
-        val config = Map(
+      "wonky amd-opteron output w/ show empty sockets" in new LshwParserHelper("lshw-amd-opteron-wonky.xml", Map(
           "lshw.includeEmptySocket" -> "true"
-        )
-        val parseResults = parsed(config)
+        )) {
+        val parseResults = parsed()
         parseResults must beRight
         parseResults.right.toOption must beSome.which { rep =>
           rep.cpuCount mustEqual 2

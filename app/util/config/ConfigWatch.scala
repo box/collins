@@ -20,7 +20,7 @@ object ConfigWatch extends AppConfig {
       val origin = refValue.origin
       Option(origin.filename)
     } catch {
-      case e => None
+      case e: Throwable => None
     }
   }.map(f => new File(f)).getOrElse {
     throw new Exception("Config has no file based origin, can not watch for changes")
@@ -36,14 +36,14 @@ object ConfigWatch extends AppConfig {
     }.toMap
   }
 
-  private val timer = new Timer()
+  private val timer = new Timer("config-watcher")
 
-  Runtime.getRuntime().addShutdownHook(new Thread() {
+  Runtime.getRuntime().addShutdownHook(new Thread("config-watch-reaper") {
     override def run() {
       try {
         timer.cancel
       } catch {
-        case e =>
+        case e: Throwable =>
       }
     }
   })
@@ -56,7 +56,7 @@ object ConfigWatch extends AppConfig {
       // start a timer task in 30 seconds that checks the file times every 30 seconds
       timer.schedule(new ConfigWatchTask(allWatches), startAfter, runEvery)
     } catch {
-      case e =>
+      case e: Throwable =>
         logger.warn("Error scheduling timer: %s".format(e.getMessage))
     }
   }
@@ -66,7 +66,7 @@ object ConfigWatch extends AppConfig {
       logger.info("Cancelling ConfigWatch timer")
       timer.cancel
     } catch {
-      case e =>
+      case e: Throwable =>
     }
   }
 
@@ -77,7 +77,7 @@ object ConfigWatch extends AppConfig {
       ) // this is what Play does
       Registry.onChange(config)
     } catch {
-      case e =>
+      case e: Throwable =>
         logger.warn("Error loading configuration from %s: %s".format(
           rootConfig.toString, e.getMessage
         ), e)

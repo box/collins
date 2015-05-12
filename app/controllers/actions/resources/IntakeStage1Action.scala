@@ -3,19 +3,20 @@ package actions
 package resources
 
 import forms._
-
 import models.Truthy
+import play.api.templates.Html
 import util.IpmiCommand
 import util.concurrent.BackgroundProcessor
 import util.plugins.{IpmiPowerCommand, PowerManagement}
 import util.security.SecuritySpecification
-
 import collins.power.Identify
-import collins.power.management.{PowerManagement, PowerManagementConfig}
-
+import collins.power.management.PowerManagement
 import play.api.data.Form
 import play.api.data.Forms._
-import play.api.mvc.AsyncResult
+import play.api.mvc.{SimpleResult, AsyncResult}
+import scala.concurrent.Future
+import play.api.libs.concurrent.Execution.Implicits._
+
 
 case class IntakeStage1Action(
   assetId: Long,
@@ -56,14 +57,14 @@ case class IntakeStage1Action(
     Redirect(app.routes.Resources.intake(assetId, 1)).flashing("error" -> rd.toString)
   )
 
-  protected def identifyAsset(plugin: PowerManagement) = {
+  protected def identifyAsset(plugin: PowerManagement) : Future[SimpleResult[Html]] = {
     val cmd = IpmiPowerCommand.fromPowerAction(definedAsset, Identify)
-    BackgroundProcessor.send(cmd) { result =>
+    BackgroundProcessor.flatSend(cmd) { result =>
       IpmiCommand.fromResult(result) match {
         case Left(throwable) =>
           verifyIpmiReachable(plugin, throwable.toString)
-        case Right(None) => defaultView
-        case Right(Some(suc)) if suc.isSuccess => defaultView
+        case Right(None) => Future.successful(defaultView)
+        case Right(Some(suc)) if suc.isSuccess => Future.successful(defaultView)
         case Right(Some(error)) if !error.isSuccess =>
           verifyIpmiReachable(plugin, error.toString)
       }
@@ -73,11 +74,13 @@ case class IntakeStage1Action(
   protected def defaultView =
     Status.Ok(views.html.resources.intake(definedAsset)(flash, request))
 
-  protected def verifyIpmiReachable(plugin: PowerManagement, errorString: String) =
-    plugin.verify(definedAsset)() match {
+  protected def verifyIpmiReachable(plugin: PowerManagement, errorString: String): Future[SimpleResult[Html]] = {
+    val ps = plugin.verify(definedAsset)
+    ps.map {
       case reachable if reachable.isSuccess =>
         Status.Ok(views.html.help(Help.IpmiError, errorString)(flash, request))
       case unreachable if !unreachable.isSuccess =>
         Status.Ok(views.html.help(Help.IpmiUnreachable, errorString)(flash, request))
     }
+  }
 }

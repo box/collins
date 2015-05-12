@@ -13,7 +13,7 @@ import play.api.mvc.MultipartFormData._
 
 import test._
 
-class ApiSpec extends ApplicationSpecification with ControllerSpec {
+class ApiSpec extends mutable.Specification with ControllerSpec {
 
   args(sequential = true)
   val user = getLoggedInUser("infra")
@@ -81,8 +81,9 @@ class ApiSpec extends ApplicationSpecification with ControllerSpec {
   def provideBashResponse = new ResponseMatcher(BashOutput().contentType) {
     override def expectedStatusCode = 200
     override def responseMatches(txt: String): Boolean = {
-      txt.contains("""Data_TestList_0_name="foo123";""") &&
-      txt.contains("""Status="Ok";""");
+      txt.contains("""DATA_TESTLIST_0_NAME="foo123";""") &&
+      txt.contains("""DATA_TESTLIST_0_KEY_WITH_DASH="val-with-dash";""") &&
+      txt.contains("""STATUS="Ok";""");
     }
   }
 
@@ -96,7 +97,8 @@ class ApiSpec extends ApplicationSpecification with ControllerSpec {
       (jsData \ "Data").isInstanceOf[JsObject] &&
       (jsData \ "Data" \ "TestList").isInstanceOf[JsArray] &&
       (jsData \ "Data" \ "TestList")(0).isInstanceOf[JsObject] &&
-      ((jsData \ "Data" \ "TestList")(0) \ "id").as[Long] == 123L
+      ((jsData \ "Data" \ "TestList")(0) \ "id").as[Long] == 123L &&
+      ((jsData \ "Data" \ "TestList") (0) \ "key-with-dash").as[String] == "val-with-dash"
     }
   }
 

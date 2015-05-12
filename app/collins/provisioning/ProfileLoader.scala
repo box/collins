@@ -18,7 +18,7 @@ case class ProfileLoader(profiles: Set[ProvisionerProfile])
     try {
       ProfileLoader.fromFile(new IoFile(filename))
     } catch {
-      case e =>
+      case e: Throwable =>
         logger.error("There is a problem with the profiles file %s: %s".format(
           filename, e.getMessage
         ))
@@ -40,20 +40,18 @@ object ProfileLoader {
   }
   def fromFile(file: IoFile): Set[ProvisionerProfile] = {
     File.requireFileIsReadable(file)
-    val classLoader = try {
-      import play.api.Play.current
-      current.classloader
-    } catch {
-      case e =>
-        getClass.getClassLoader
-    }
-    val p = ProvisionerProfileHelper.fromFile(file, classLoader)
+    val p = ProvisionerProfileHelper.fromFile(file)
     require(p != null, "Invalid yaml file %s".format(file.getAbsolutePath))
     val seq = p.profiles.asScala.map { case(key, profile) =>
       val roleData = ProvisionerRoleData(
         optionalButNonEmpty(profile.getPrimary_role()),
         optionalButNonEmpty(profile.getPool()),
         optionalButNonEmpty(profile.getSecondary_role()),
+        optionalButNonEmpty(profile.getContact()),
+        optionalButNonEmpty(profile.getContact_notes()),
+        Option(profile.getAllowed_classes().asScala.toSet).filter(_.nonEmpty),
+        profile.getAttributes().asScala.map(a => (a._1.toUpperCase, a._2.toString)).toMap,
+        profile.getClear_attributes().asScala.map(_.toUpperCase).toSet,
         Option(profile.getRequires_primary_role()).map(_.booleanValue()).getOrElse(true),
         Option(profile.getRequires_pool()).map(_.booleanValue()).getOrElse(true),
         Option(profile.getRequires_secondary_role()).map(_.booleanValue()).getOrElse(false)

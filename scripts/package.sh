@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+set -e
+
 if [ -z "$1" ]; then
   DEBUG=0
 else
@@ -8,7 +10,12 @@ else
 fi
 
 if [ -z "$PLAY_CMD" ]; then
-  PLAY_CMD="$HOME/src/play-2.0.3/play";
+  PLAY_CMD="$HOME/src/play-2.1.5/play";
+fi
+
+if [ ! -f $PLAY_CMD ]; then
+  echo "unable to find play command @ $PLAY_CMD"
+  exit 1
 fi
 
 if [ $DEBUG -eq 0 ]; then
@@ -46,6 +53,7 @@ for conf in logger.xml permissions.yaml validations.conf; do
 done
 cp ../conf/production_starter.conf $CONF_DIR/production.conf
 
+cp ../conf/solr/solr.xml $CONF_DIR/solr/
 cp -R ../conf/solr/conf/* $CONF_DIR/solr/conf/
 cp -R ../conf/evolutions/* $CONF_DIR/evolutions/
 zip -r collins.zip collins

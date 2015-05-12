@@ -1,65 +1,69 @@
 @(aa: models.asset.AllAttributes, user: User)(implicit flash: Flash, req: Request[AnyContent])
 
 @import _root_.util.AssetStateMachine
-@import _root_.util.plugins.{GraphPlugin, Maintenance, PowerManagement, Provisioner, SoftLayer}
+@import _root_.util.plugins.{GraphPlugin, MonitoringPlugin, Maintenance, PowerManagement, Provisioner, SoftLayer}
 @import _root_.util.views.{OptionSorter, ProvisionerHelper, Summary, TagDecorator, Titler}
 @import _root_.collins.provisioning.ProvisionerConfig
 @import _root_.controllers.Permissions
 
-<div class="row">
-  <div class="span12">
-    @Summary(aa.asset)
-  </div>
+<div class="page-header" style="position:relative;">
+  @Summary(aa.asset)
 </div>
 
 <div class="row">
-  <div class="span12">
+  <div class="col-md-12">
 
     <ul class="nav nav-pills">
       <li class="active"><a href="#overview" data-toggle="pill">Overview</a></li>
       @if(aa.ipmi.nonEmpty || PowerManagement.powerAllowed(aa.asset)) {
       <li><a href="#ipmi-info" data-toggle="pill">IPMI Info</a></li>
+      } else {
+      <li class="disabled" data-rel="tooltip" data-original-title="This asset is does not have any IPMI information"><a href="javascript:void(0);">IPMI Info</a></li>
       }
       <li><a href="#log-data" data-toggle="pill">Logs</a></li>
       @if(aa.lshw.cpuCount > 0) {
       <li><a href="#hardware-details" data-toggle="pill">Hardware Details</a></li>
+      } else {
+      <li class="disabled" data-rel="tooltip" data-original-title="This asset is does not report any CPUs in LSHW"><a href="javascript:void(0);">Hardware Details</a></li>
       }
       @if(aa.lldp.interfaceCount > 0) {
       <li><a href="#lldp-info" data-toggle="pill">LLDP Info</a></li>
+      } else {
+      <li class="disabled" data-rel="tooltip" data-original-title="This asset is does not report any interfaces in LLDP"><a href="javascript:void(0);">LLDP Info</a></li>
       }
       <li class="dropdown" data-dropdown="dropdown">
-        <a href="#" class="dropdown-toggle" data-toggle="dropdown"><strong>Actions</strong> <b class="caret"></b></a>
+        <a href="javascript:void(0);" class="dropdown-toggle" data-toggle="dropdown"><strong>Actions</strong> <b class="caret"></b></a>
         <ul class="dropdown-menu">
-          <li>@modalLink("#asset-note", "Create Note", icon = Some("icon-comment"))</li>
+          <li>@modalLink("#asset-note", "Create Note", icon = Some("glyphicon glyphicon-comment"))</li>
           <li class="divider"></li>
           @if(Permissions.please(user, Permissions.AssetWebApi.CancelAsset) && SoftLayer.canCancel(aa.asset)) {
-            <li>@modalLink("#cancel-server", "Cancel Server", icon = Some("icon-warning-sign"))</li>
+            <li>@modalLink("#cancel-server", "Cancel Server", icon = Some("glyphicon glyphicon-warning-sign"))</li>
           }
           @if(Permissions.please(user, Permissions.AssetWebApi.DeleteAsset) && AssetStateMachine(aa.asset).canDecommission) {
-            <li>@modalLink("#delete-asset", "Delete Asset", icon = Some("icon-trash"))</li>
+            <li>@modalLink("#delete-asset", "Delete Asset", icon = Some("glyphicon glyphicon-trash"))</li>
           }
           @if(Permissions.please(user, Permissions.AssetApi.UpdateAssetForMaintenance)) {
             @if(Maintenance.canTransitionToMaintenance(aa.asset)) {
-              <li>@modalLink("#asset-maintenance", "Maintenance Start", icon = Some("icon-wrench"))</li>
+              <li>@modalLink("#asset-maintenance", "Maintenance Start", icon = Some("glyphicon glyphicon-wrench"))</li>
             }
             @if(Maintenance.canTransitionFromMaintenance(aa.asset)) {
-              <li>@modalLink("#asset-maintenance", "Maintenance End", icon = Some("icon-wrench"))</li>
+              <li>@modalLink("#asset-maintenance", "Maintenance End", icon = Some("glyphicon glyphicon-wrench"))</li>
             }
           }
           @if(Permissions.please(user, Permissions.AssetManagementApi.PowerManagement)) {
             @PowerManagement.pluginEnabled.map { p =>
               @if(PowerManagement.powerAllowed(aa.asset)) {
-                <li>@modalLink("#power-server", "Power Management", icon = Some("icon-fire"))</li> 
+                <li>@modalLink("#power-server", "Power Management", icon = Some("glyphicon glyphicon-fire"))</li> 
               }
             }
           }
 	        @if(Permissions.please(user, Permissions.AssetManagementApi.ProvisionAsset)) {
 	          @Provisioner.pluginEnabled.map { p =>
               @if(p.canProvision(aa.asset)) {
-                <li>@modalLink("#provision-server", "Provision Server", icon = Some("icon-play"))</li>
+                <li>@modalLink("#provision-server", "Provision Server", icon = Some("glyphicon glyphicon-play"))</li>
               } else {
                 @if(SoftLayer.canActivate(aa.asset)) {
-                  <li>@modalLink("#provision-server", "Activate Server", icon = Some("icon-play"))</li>
+                  <li>@modalLink("#provision-server", "Activate Server", icon = Some("glyphicon glyphicon-play"))</li>
                 }
               }
 	          }
@@ -67,18 +71,40 @@
         </ul>
       </li>
       @GraphPlugin.option.map { p =>
-        <li><a href="#graph-info" data-toggle="pill">Graphs</a></li>
+        @if(p.isGraphable(aa.asset)) {
+          <li><a href="#graph-info" data-toggle="pill">Graphs</a></li>
+        } else {
+          <li class="disabled" data-rel="tooltip" data-original-title="This asset is not graphable"><a href="javascript:void(0);">Graphs</a></li>
+        }
+      }
+      @MonitoringPlugin.option.map { plugin =>
+        @if(plugin.isMonitorable(aa.asset)) {
+          <li><a href="#monitoring-info" data-toggle="pill">Monitoring</a></li>
+        } else {
+          <li class="disabled" data-rel="tooltip" data-original-title="This asset is not monitorable"><a href="javascript:void(0);">Monitoring</a></li>
+        }
       }
     </ul>
   </div>
 </div>
 
 <script type="text/javascript">
-    jQuery(document).ready(function ($) {
-      var anchor = location.href.split('#')[1];
-      $('a[href=#' + anchor + ']').tab('show');
-      setTimeout(function() {
-        $(window).scrollTop(0);
-       }, 0);
-    });
+jQuery(document).ready(function ($) {
+  var anchor = location.href.split('#')[1];
+  $('a[href=#' + anchor + ']').tab('show');
+  setTimeout(function() {
+    $(window).scrollTop(0);
+   }, 0);
+
+  //bind tab shows to update fragment in url
+  $('a[data-toggle="pill"]').on('show.bs.tab',function(e){
+    var target = $(e.target).attr('href');
+    if (target && target != '#') {
+      var frag = target.split('#')[1];
+      if (frag && frag != ''){
+        window.location.hash = frag;
+      }
+    }
+  });
+});
 </script>
