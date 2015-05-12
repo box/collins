@@ -17,7 +17,7 @@ case class PermissionsLoader(privileges: Privileges) extends CacheLoader[String,
       File.requireFileIsReadable(filename)
       PermissionsHelper.fromFile(new IoFile(filename).getAbsolutePath)
     } catch {
-      case e =>
+      case e: Throwable =>
         logger.error("There is a problem with the permissions file %s: %s".format(
           filename, e.getMessage
         ))
@@ -26,8 +26,12 @@ case class PermissionsLoader(privileges: Privileges) extends CacheLoader[String,
   }
 }
 object PermissionsLoader {
+
+  private[this] val logger = Logger("util.security.PermissionsLoader")
+
   def apply(): PermissionsLoader = {
     val permissionsFile = AuthenticationProviderConfig.permissionsFile
+    logger.info("Loading permissions from %s".format(permissionsFile.toString))
     val privileges = PermissionsHelper.fromFile(new IoFile(permissionsFile).getAbsolutePath)
     PermissionsLoader(privileges)
   }

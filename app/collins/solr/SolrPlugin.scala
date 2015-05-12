@@ -1,34 +1,29 @@
 package collins.solr
 
 import akka.actor._
-import akka.util.duration._
-
+import scala.concurrent.duration._
 import java.util.Date
-
 import models.{Asset, AssetFinder, AssetLog, AssetMeta, AssetMetaValue, AssetType, IpAddresses, MetaWrapper, Page, PageParams, Status, Truthy}
 import models.asset.AssetView
 import models.IpmiInfo.Enum._
 import models.SortDirection._
-
 import org.apache.solr.client.solrj.{SolrServer, SolrQuery}
 import org.apache.solr.client.solrj.embedded.EmbeddedSolrServer
 import org.apache.solr.common.{SolrDocument, SolrInputDocument}
 import org.apache.solr.core.CoreContainer
 import org.apache.solr.client.solrj.impl.{HttpSolrServer, XMLResponseParser}
-
 import play.api.{Application, Logger, Play, PlayException, Plugin}
-import play.api.libs.concurrent._
-import play.api.libs.concurrent.Akka._
+import play.api.libs.concurrent.Akka
 import play.api.Play.current
-
+import akka.actor.Props
 import util.AttributeResolver
 import util.plugins.Callback
 import util.views.Formatter
-
 import AssetMeta.ValueType
 import AssetMeta.ValueType._
-
 import CollinsQueryDSL._
+import Solr.AssetSolrDocument
+import akka.routing.FromConfig
 
 class SolrPlugin(app: Application) extends Plugin {
 
@@ -47,10 +42,6 @@ class SolrPlugin(app: Application) extends Plugin {
 
   val assetSerializer = new AssetSerializer
   val assetLogSerializer = new AssetLogSerializer
-
-  //this must be lazy so it gets called after the system exists
-  lazy val updater = Akka.system.actorOf(Props[AssetSolrUpdater], name = "solr_asset_updater")
-  lazy val logUpdater = Akka.system.actorOf(Props[AssetLogSolrUpdater], name = "solr_asset_log_updater")
 
   override def onStart() {
     if (enabled) {
@@ -75,9 +66,9 @@ class SolrPlugin(app: Application) extends Plugin {
 
   private def setupServer() {
     val server = if (SolrConfig.useEmbeddedServer) {
-      Solr.getNewEmbeddedServer(SolrConfig.embeddedSolrHome)
+      Solr.getNewEmbeddedServer
     } else {
-      Solr.getNewRemoteServer(SolrConfig.externalUrl.get)
+      Solr.getNewRemoteServer
     }
     _server = Some(server)
   }
@@ -86,6 +77,9 @@ class SolrPlugin(app: Application) extends Plugin {
    * properly reindex the updated asset in Solr
    */
   private def initializeCallbacks() {
+    val updater = Akka.system.actorOf(Props[AssetSolrUpdater].withRouter(FromConfig()), name = "solr_asset_updater")
+    val logUpdater = Akka.system.actorOf(Props[AssetLogSolrUpdater].withRouter(FromConfig()), name = "solr_asset_log_updater")
+
     val callback = SolrAssetCallbackHandler(server, updater)
     Callback.on("asset_update", callback)
     Callback.on("asset_create", callback)
@@ -102,8 +96,9 @@ class SolrPlugin(app: Application) extends Plugin {
     Callback.on("asset_log_update", logCallback)
   }
 
-  def populate() = Akka.future { 
-    _server.map{ server => 
+  def populate() = Akka.future {
+    _server.map{ server =>
+      logger.warn("Repopulating Solr index")
       val indexTime = new Date
 
       //Assets
@@ -127,7 +122,7 @@ class SolrPlugin(app: Application) extends Plugin {
 
   def updateItems[T](items: Seq[T], serializer: SolrSerializer[T], indexTime: Date, commit: Boolean = true) {
     _server.map{server =>
-      val docs = items.map{item => Solr.prepForInsertion(serializer.serialize(item, indexTime))}
+      val docs = items.map{item => prepForInsertion(serializer.serialize(item, indexTime))}
       if (docs.size > 0) {
         val fuckingJava = new java.util.ArrayList[SolrInputDocument]
         docs.foreach{doc => fuckingJava.add(doc)}
@@ -135,9 +130,9 @@ class SolrPlugin(app: Application) extends Plugin {
         if (commit) {
           server.commit()
           if (items.size == 1) {
-            logger.debug(("Re-indexing %s, %s".format(serializer.docType.name, items.head.toString)))
+            logger.debug(("Indexed %s: %s".format(serializer.docType.name.toLowerCase, items.head.toString)))
           } else {
-            logger.info("Indexed %d %ss".format(docs.size, serializer.docType.name))
+            logger.info("Indexed %d %ss".format(docs.size, serializer.docType.name.toLowerCase))
           }
         }
       } else {
@@ -159,4 +154,9 @@ class SolrPlugin(app: Application) extends Plugin {
     _server.foreach{case s: EmbeddedSolrServer => s.shutdown}
   }
 
+  def prepForInsertion(typedMap: AssetSolrDocument): SolrInputDocument = {
+    val input = new SolrInputDocument
+    typedMap.foreach{case(key,value) => input.addField(key.resolvedName,value.value)}
+    input
+  }
 }

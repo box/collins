@@ -1,18 +1,20 @@
 package controllers
 package actors
 
-import akka.util.Duration
+import scala.concurrent.duration._
 import play.api.mvc.{AnyContent, Request}
 import util.concurrent.BackgroundProcess
 import util.plugins.SoftLayer
+import scala.concurrent.{Await, Future}
+import java.util.concurrent.TimeUnit
+import collins.softlayer.SoftLayerConfig
 
-case class ActivationProcessor(slId: Long, userTimeout: Option[Duration] = None)(implicit req: Request[AnyContent]) extends BackgroundProcess[Boolean] {
-  override def defaultTimeout: Duration = Duration.parse("60 seconds")
-  val timeout = userTimeout.getOrElse(defaultTimeout)
+case class ActivationProcessor(slId: Long, userTimeout: Option[FiniteDuration] = None)(implicit req: Request[AnyContent]) extends BackgroundProcess[Boolean] {
+  val timeout = userTimeout.getOrElse(Duration(SoftLayerConfig.activationRequestTimeoutMs, TimeUnit.MILLISECONDS))
 
   def run(): Boolean = {
     val plugin = SoftLayer.pluginEnabled.get
-    plugin.activateServer(slId)()
+    Await.result(plugin.activateServer(slId), timeout)
   }
 }
 

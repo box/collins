@@ -5,6 +5,7 @@ target
 tmp
 dist
 *.swp
+/.idea*
 tags
 *.log
 profileOfH2Tests.html
@@ -14,10 +15,26 @@ _site
 RUNNING_PID
 .DS_Store
 Gemfile.lock
+
 .idea
 .idea_modules
+*.iml
+
+# eclipse project files
+.classpath
+.project
+.settings/*
+.externalToolBuilders/
+_includes/*
+
+/bin
+
+#emacs files
+*~
+\#*\#
 
 /conf/solr/data/
 /conf/dev_authentication.conf
 
-
+# jenv java version mgmt
+.java-version

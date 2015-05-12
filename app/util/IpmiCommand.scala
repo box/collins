@@ -1,12 +1,12 @@
 package util
 
 import config.AppConfig
-import models.{Asset, IpmiInfo}
+import models.IpmiInfo
 import concurrent.BackgroundProcess
 import collins.shell.CommandResult
 
-import akka.util.Duration
-import play.api.{Logger, Mode}
+import scala.concurrent.duration.Duration
+import play.api.Logger
 import java.util.concurrent.TimeUnit
 import scala.collection.mutable.StringBuilder
 import scala.sys.process._
@@ -71,8 +71,6 @@ abstract class IpmiCommand extends BackgroundProcess[Option[CommandResult]] {
     }
     Some(cr)
   }
-
-  override protected def defaultTimeout: Duration = Duration(2, TimeUnit.MILLISECONDS)
 
   protected def substitute(cmd: String): String = {
     cmd.replace("<host>", address)

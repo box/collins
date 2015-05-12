@@ -80,12 +80,14 @@ class LshwParser(txt: String) extends CommonParser[LshwRepresentation](txt) {
         case n if n.isEmpty => ByteStorageUnit(0)
         case n => ByteStorageUnit(n.toLong)
       }
-      val bank: Int = try { (n \ "@id" text).split(":").last.toInt } catch { case _ => -1 }
+      val bank: Int = try { (n \ "@id" text).split(":").last.toInt } catch { case _: Throwable => -1 }
       Memory(size, bank, asset.description, asset.product, asset.vendor)
   }
 
   val diskMatcher: PartialFunction[NodeSeq,Disk] = {
-    case n if (n \ "@class" text) == "disk" =>
+    case n if ( (n \ "@class" text) == "disk" ) ||
+              ( (n \ "@class" text) == "volume" &&
+                (n \ "@id" text).contains("disk") ) =>
       val _type = (n \ "physid" text).contains("\\.") match {
         case true => Disk.Type.Ide
         case false =>
@@ -100,7 +102,7 @@ class LshwParser(txt: String) extends CommonParser[LshwRepresentation](txt) {
         case size => ByteStorageUnit(size.toLong)
       }
       Disk(size, _type, asset.description, asset.product, asset.vendor)
-    case n if (n \ "@class" text) == "memory" && (n \ "product" text).toLowerCase.contains(LshwConfig.flashProduct) =>
+    case n if (n \ "@class" text) == "memory" && LshwConfig.flashProducts.exists(s => (n \ "product" text).toLowerCase.contains(s)) =>
       val asset = getAsset(n)
       val size = ByteStorageUnit(LshwConfig.flashSize)
       Disk(size, Disk.Type.Flash, asset.description, asset.product, asset.vendor)
@@ -114,7 +116,10 @@ class LshwParser(txt: String) extends CommonParser[LshwRepresentation](txt) {
       val mac = (n \ "serial" text)
       val speed = (n \ "capacity" text) match {
         case cap if cap.nonEmpty => BitStorageUnit(cap.toLong)
-        case empty => getDefaultNicStorage(asset)
+        case empty => (n \ "size" text) match {
+          case size if size.nonEmpty => BitStorageUnit(size.toLong)
+          case empty => getDefaultNicStorage(asset)
+        }
       }
       Nic(speed, mac, asset.description, asset.product, asset.vendor)
     }
@@ -132,7 +137,7 @@ class LshwParser(txt: String) extends CommonParser[LshwRepresentation](txt) {
         .map((s: String) => BitStorageUnit(s.toLong))
         .getOrElse(
           throw AttributeNotFoundException(
-            "Could not find capacity for network interface"
+            "Could not find capacity for network interface for %s".format(asset.product)
         ))
     }
   }
@@ -174,13 +179,15 @@ class LshwParser(txt: String) extends CommonParser[LshwRepresentation](txt) {
     // the correct element
     if ((elem \ "@class" text).toString == "system") {
       val asset = getAsset(elem)
-      ServerBase(asset.description, asset.product, asset.vendor)
+      val serial = (elem \ "serial" text)
+      ServerBase(asset.description, asset.product, asset.vendor, serial)
     }
     // To spice things up, sometimes we get <list>$everything</list>
     // instead of just $everything
     else if (((elem \ "node") \ "@class" text) == "system")  {
       val asset = getAsset(elem \ "node")
-      ServerBase(asset.description, asset.product, asset.vendor)
+      val serial = (elem \ "serial" text)
+      ServerBase(asset.description, asset.product, asset.vendor, serial)
     }
     else {
       throw MalformedAttributeException("Expected root class=system node attribute")

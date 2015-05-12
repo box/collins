@@ -1,23 +1,13 @@
 @(aa: models.asset.AllAttributes, user: User)(implicit flash: Flash, req: Request[AnyContent])
 
-@import _root_.util.config.Feature
+@import _root_.util.config.{Feature, NodeclassifierConfig}
 @import _root_.util.plugins.SoftLayer
 @import _root_.util.views.{MetaValueOrderer, TagDecorator}
+@import util._
 
 <div class="active tab-pane" id="overview">
-<!--
-  <div class="navbar">
-    <div class="navbar-inner">
-      <ul class="nav">
-        <li class="active"><a href="#overview-section">Overview</a></li>
-        <li><a href="#hardware-summary-section">Hardware Summary</a></li>
-        <li><a href="#user-log-section">User Logs</a></li>
-      </ul>
-    </div>
-  </div>
--->
   <section id="overview-section" class="sectional">
-    <h3>Asset Overview</h3>
+    <h3>Asset Overview <small>System and user attributes</small></h3>
     <table id="basicDataTable" class="table table-hover table-condensed">
       <thead>
         <tr>
@@ -42,20 +32,41 @@
         <tr>
           <th>Asset Tag</th>
           @SoftLayer.pluginEnabled.filter(p => p.isSoftLayerAsset(aa.asset)).map { t =>
-  	          @slLink(aa.asset, aa.asset.tag)
-  	        }.getOrElse{<td>@aa.asset.tag</td>}
-          <td>Find Similar Assets: <a href="@app.routes.Resources.similar(aa.asset.tag)">Unallocated</a>, <a href="@app.routes.Resources.similar(aa.asset.tag)?onlyUnallocated=false">All</a></td>
+            @slLink(aa.asset, aa.asset.tag)
+          }.getOrElse{<td>@aa.asset.tag</td>}
+          <td></td>
+        </tr>
+        <tr>
+          @defining(aa.asset.nodeClass){ nodeclass =>
+          <th>Classification</th>
+          <td>
+            <span>
+              @nodeclass.map { nc =>
+                <a href="@nc.tag">@nc.getMetaAttribute(NodeclassifierConfig.displayNameAttribute).getOrElse{@nc.tag}</a>
+              }.getOrElse{Unclassified}
+            </span>
+          </td>
+          <td>
+            <span>
+              @nodeclass.map { nc =>
+                Find other @nc.getMetaAttribute(NodeclassifierConfig.displayNameAttribute).getOrElse{@nc.tag} assets:
+                <a href="@app.routes.Resources.similar(aa.asset.tag)">Unallocated</a>,
+                <a href="@app.routes.Resources.similar(aa.asset.tag)?onlyUnallocated=false">All</a>
+              }
+            </span>
+          </td>
+          }
         </tr>
         <tr>
           <th>Asset Type</th>
           <td>@aa.asset.getType().label</td>
           <td></td>
         </tr>
-        <tr class="@if(aa.asset.isMaintenance){error}">
+        <tr class="@statusClassFromAsset(aa.asset)">
           <td><strong>Asset Status</strong></td>
           <td>@aa.asset.getStatus().name</td>
           @if(aa.asset.isMaintenance) {
-            <td><span class="label label-important">See Notes</span> @aa.asset.getStatus().description</td>
+            <td><a href="#user-log-section"><span class="label label-primary">See Notes</span></a> @aa.asset.getStatus().description</td>
           } else {
             <td>@aa.asset.getStatus().description</td>
           }
@@ -111,7 +122,7 @@
     var userNotesUri = "/asset/@aa.asset.tag/logs?filter=" + escape(userNotesLevels.join(';'));
   </script>
   <section id="user-log-section" class="sectional">
-    <h3>User Notes <small>Important Notes</small></h3>
+    <h3>User Notes <small>Important log entries</small></h3>
     <div id="log_data_note_container">
       <table id="log_data_note" data-size="25" class="table log-data table-hover table-condensed" data-cols='userNotesCols' data-source="javascript://userNotesUri">
         <thead>
@@ -136,7 +147,7 @@
 
   @if(aa.asset.isServerNode) {
   <section id="hardware-summary-section" class="sectional">
-    <h3>Hardware Summary</h3>
+    <h3>Hardware Summary <small>Summary of system components reported by LSHW</small></h3>
     @if(aa.lshw.cpuCount > 0) {
     <table class="table table-hover table-condensed" id="hardwareSummary">
       <thead>

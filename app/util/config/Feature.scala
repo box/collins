@@ -1,7 +1,7 @@
 package util
 package config
 
-import models.{Asset, AssetMeta}
+import models.{Asset, AssetMeta, Status}
 import models.logs.LogMessageType
 
 /**
@@ -15,14 +15,18 @@ object Feature extends Configurable {
 
   override val namespace = "features"
   override val referenceConfigFilename = "features_reference.conf"
+  val defaultSearchResultColumns = List("TAG","HOSTNAME","PRIMARY_ROLE","STATUS","CREATED","UPDATED")
 
   def allowTagUpdates = getStringSet("allowTagUpdates")
+  def allowedServerUpdateStatuses = getStringSet("allowedServerUpdateStatuses").union(Set("MAINTENANCE"))
+    .map { m => Status.findByName(m) }
+    .filter(_.isDefined).map(_.get)
   def defaultLogType = {
     val lts = getString("defaultLogType", "Informational").toUpperCase
     try {
       LogMessageType.withName(lts)
     } catch {
-      case e =>
+      case e:Throwable =>
         featureException("defaultLogType", "%s is not a valid log type".format(lts))
     }
   }
@@ -34,12 +38,10 @@ object Feature extends Configurable {
   def deleteIpmiOnDecommission = getBoolean("deleteIpmiOnDecommission", true)
   def deleteIpAddressOnDecommission = getBoolean("deleteIpAddressOnDecommission", true)
   def deleteMetaOnDecommission = getBoolean("deleteMetaOnDecommission", false)
-  def deleteSomeMetaOnRepurpose = getStringSet("deleteSomeMetaOnRepurpose").map { m =>
-    AssetMeta.findByName(m)
-  }.filter(_.isDefined).map(_.get)
-  def encryptedTags = getStringSet("encryptedTags").map { m =>
-    AssetMeta.findByName(m)
-  }.filter(_.isDefined).map(_.get)
+  def useWhiteListOnRepurpose = getBoolean("useWhitelistOnRepurpose", false)
+  def deleteSomeMetaOnRepurpose = getStringSet("deleteSomeMetaOnRepurpose").flatMap(AssetMeta.findByName(_))
+  def encryptedTags = getStringSet("encryptedTags").flatMap(AssetMeta.findByName(_))
+  def keepSomeMetaOnRepurpose = getStringSet("keepSomeMetaOnRepurpose").flatMap(AssetMeta.findByName(_))
   def intakeSupported = getBoolean("intakeSupported", true)
   def ignoreDangerousCommands = getStringSet("ignoreDangerousCommands")
   def hideMeta = getStringSet("hideMeta")
@@ -47,6 +49,7 @@ object Feature extends Configurable {
   def noLogPurges = getStringSet("noLogPurges")
   def sloppyStatus = getBoolean("sloppyStatus", true)
   def sloppyTags = getBoolean("sloppyTags", false)
+  def searchResultColumns = getStringList("searchResultColumns", defaultSearchResultColumns).distinct.map(_.toUpperCase)
 
   protected def featureException(key: String, error: String) =
     throw new Exception("%s.%s - %s".format(namespace, key, error))
@@ -54,7 +57,12 @@ object Feature extends Configurable {
   override protected def validateConfig() {
     defaultLogType
     encryptedTags
-    deleteSomeMetaOnRepurpose
+    if (useWhiteListOnRepurpose) {
+      keepSomeMetaOnRepurpose
+    } else {
+      deleteSomeMetaOnRepurpose
+    }
+    searchResultColumns
     syslogAsset
   }
 }
